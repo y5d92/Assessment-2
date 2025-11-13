@@ -1,3 +1,6 @@
+# I acknowledge the use of Gemini (version Flash 2.5, Google, https://gemini.google.com/)
+# to co-create this code for the Spacewaves Defender game.
+
 import tkinter as tk
 import random
 import time
@@ -21,16 +24,27 @@ class SpacewavesGame:
         master.title("Spacewaves Defender")
         master.resizable(False, False)
         
+        # Setup Canvas (created once)
+        self.canvas = tk.Canvas(master, width=CANVAS_WIDTH, height=CANVAS_HEIGHT, bg="#000022")
+        self.canvas.pack(padx=10, pady=10)
+        
+        # Initialize all game objects and state
+        self.init_game_objects()
+
+        # Start the game loop
+        self.game_loop()
+
+    def init_game_objects(self):
+        """Initializes or resets all game elements and state."""
+        # Clear the canvas of all existing items (enemies, player, previous game over text)
+        self.canvas.delete(tk.ALL)
+        
         # Game State
         self.game_running = True
         self.score = 0
         self.enemies = []
         self.enemy_speed = ENEMY_SPEED_INITIAL
         self.last_spawn_time = time.time() * 1000
-
-        # Setup Canvas
-        self.canvas = tk.Canvas(master, width=CANVAS_WIDTH, height=CANVAS_HEIGHT, bg="#000022")
-        self.canvas.pack(padx=10, pady=10)
 
         # Player setup
         self.player_x = CANVAS_WIDTH // 2
@@ -48,14 +62,24 @@ class SpacewavesGame:
             fill="#FFFFFF", font=('Inter', 16, 'bold')
         )
 
-        # Bind controls
-        master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
-        master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
-        master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
-        master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
+        # Bind initial controls
+        self.bind_controls()
 
-        # Start the game loop
-        self.game_loop()
+    def bind_controls(self):
+        """Binds the movement controls and unbinds retry key."""
+        self.master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
+        self.master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
+        self.master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
+        self.master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
+        # Ensure the retry key is unbound during active gameplay
+        self.master.unbind('<Return>')
+
+    def unbind_controls(self):
+        """Unbinds all movement controls."""
+        self.master.unbind('<Left>')
+        self.master.unbind('<Right>')
+        self.master.unbind('<KeyRelease-Left>')
+        self.master.unbind('<KeyRelease-Right>')
 
     def get_player_coords(self, x, y):
         """Calculates the coordinates for the player's triangle shape."""
@@ -176,10 +200,14 @@ class SpacewavesGame:
         self.canvas.itemconfigure(self.score_text, text=f"Score: {self.score}")
 
     def game_over(self):
-        """Displays the Game Over screen."""
+        """Displays the Game Over screen and a retry option."""
+        # Unbind movement controls
+        self.unbind_controls()
+        
+        # Game Over Box
         self.canvas.create_rectangle(
             CANVAS_WIDTH // 2 - 150, CANVAS_HEIGHT // 2 - 50,
-            CANVAS_WIDTH // 2 + 150, CANVAS_HEIGHT // 2 + 50,
+            CANVAS_WIDTH // 2 + 150, CANVAS_HEIGHT // 2 + 80, # Adjusted size for retry message
             fill="#333333", outline="#FFD700", width=3
         )
         self.canvas.create_text(
@@ -191,11 +219,20 @@ class SpacewavesGame:
             text=f"Final Score: {self.score}", fill="#FFFFFF", font=('Inter', 18)
         )
         
-        # Unbind controls to stop input
-        self.master.unbind('<Left>')
-        self.master.unbind('<Right>')
-        self.master.unbind('<KeyRelease-Left>')
-        self.master.unbind('<KeyRelease-Right>')
+        # NEW: Retry Prompt
+        self.canvas.create_text(
+            CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2 + 55, 
+            text="Press ENTER to Play Again", fill="#00FFC0", font=('Inter', 14, 'bold')
+        )
+        
+        # Bind the Return/Enter key to the reset method
+        self.master.bind('<Return>', lambda event: self.reset_game())
+
+    def reset_game(self):
+        """Resets all game state and restarts the game loop."""
+        self.init_game_objects()
+        # The game_loop will now continue since self.game_running is True
+        self.game_loop()
 
     def game_loop(self):
         """The main update loop for the game."""
