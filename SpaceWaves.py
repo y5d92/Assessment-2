@@ -1,9 +1,6 @@
 # I acknowledge the use of Gemini (version Flash 2.5, Google, https://gemini.google.com/)
 # to co-create this code for the Spacewaves Defender game.
 
-# I acknowledge the use of Gemini (version Flash 2.5, Google, https://gemini.google.com/)
-# to co-create this code for the Spacewaves Defender game.
-
 import tkinter as tk
 import random
 import time
@@ -35,9 +32,12 @@ class SpacewavesGame:
         self.canvas.pack(padx=10, pady=10)
         
         # Initialize all game objects and state
+        self.game_paused = True # Game starts paused
+        self.start_text_id = None
+        
         self.init_game_objects()
-
-        # Start the game loop
+        
+        # Start the game loop which immediately hits the pause check
         self.game_loop()
 
     def init_game_objects(self):
@@ -51,6 +51,7 @@ class SpacewavesGame:
         self.enemies = []
         self.enemy_speed = ENEMY_SPEED_INITIAL
         self.last_spawn_time = time.time() * 1000
+        self.score_popups = [] # New list for temporary score texts
 
         # Player setup
         self.player_x = CANVAS_WIDTH // 2
@@ -63,48 +64,62 @@ class SpacewavesGame:
         )
 
         # Score Label
-        # The text now includes the high score
         self.score_text = self.canvas.create_text(
             10, 10, anchor=tk.NW, text=f"Score: {self.score} | High Score: {self.high_score}", 
             fill="#FFFFFF", font=('Inter', 16, 'bold')
         )
 
+        # Show initial 'Press SPACE to Start' screen
+        if self.game_paused:
+            self.start_text_id = self.canvas.create_text(
+                CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2, 
+                text="PRESS SPACE TO START", 
+                fill="#00FFC0", font=('Inter', 28, 'bold'),
+                tag="pause_text"
+            )
+
         # Bind initial controls
         self.bind_controls()
 
     def bind_controls(self):
-        """Binds the movement controls and unbinds retry key."""
+        """Binds the movement controls, pause key, and unbinds retry key."""
         self.master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
         self.master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
         self.master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
         self.master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
+        self.master.bind('<space>', self.toggle_pause) # New: Pause/Start binding
+        
         # Ensure the retry key is unbound during active gameplay
         self.master.unbind('<Return>')
 
     def unbind_controls(self):
-        """Unbinds all movement controls."""
+        """Unbinds all movement and pause controls."""
         self.master.unbind('<Left>')
         self.master.unbind('<Right>')
         self.master.unbind('<KeyRelease-Left>')
         self.master.unbind('<KeyRelease-Right>')
-        # Bind initial controls
-        self.bind_controls()
+        self.master.unbind('<space>')
 
-    def bind_controls(self):
-        """Binds the movement controls and unbinds retry key."""
-        self.master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
-        self.master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
-        self.master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
-        self.master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
-        # Ensure the retry key is unbound during active gameplay
-        self.master.unbind('<Return>')
+    def toggle_pause(self, event=None):
+        """Toggles the game state between running and paused."""
+        if not self.game_running:
+            return # Don't pause if the game is over
 
-    def unbind_controls(self):
-        """Unbinds all movement controls."""
-        self.master.unbind('<Left>')
-        self.master.unbind('<Right>')
-        self.master.unbind('<KeyRelease-Left>')
-        self.master.unbind('<KeyRelease-Right>')
+        self.game_paused = not self.game_paused
+        
+        if self.game_paused:
+            # Show pause text
+            self.start_text_id = self.canvas.create_text(
+                CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2, 
+                text="PAUSED", 
+                fill="#FFFF00", font=('Inter', 28, 'bold'),
+                tag="pause_text"
+            )
+        else:
+            # Remove pause text and resume loop immediately
+            self.canvas.delete("pause_text")
+            # Immediately call game_loop to resume animation
+            self.master.after(GAME_LOOP_DELAY, self.game_loop)
 
     def get_player_coords(self, x, y):
         """Calculates the coordinates for the player's triangle shape."""
@@ -189,16 +204,42 @@ class SpacewavesGame:
             if coords and coords[3] > CANVAS_HEIGHT:
                 enemies_to_remove.append(enemy_id)
                 self.score += 10 # Reward for dodging a block
+                
+                # INTERACTIVITY: Create score pop-up
+                x = (coords[0] + coords[2]) // 2
+                y = coords[3] - 15
+                popup_id = self.canvas.create_text(
+                    x, y, text="+10", fill="#00AAFF", 
+                    font=('Inter', 12, 'bold'), anchor=tk.CENTER
+                )
+                self.score_popups.append((popup_id, 30)) # Store ID and countdown (30 frames)
         
         # Clean up enemies that went off-screen
         for enemy_id in enemies_to_remove:
             self.canvas.delete(enemy_id)
             self.enemies.remove(enemy_id)
 
+    def update_score_popups(self):
+        """Updates the position and visibility of score pop-up texts."""
+        popups_to_remove = []
+        for i, (text_id, countdown) in enumerate(self.score_popups):
+            # Move text up (fade out effect)
+            self.canvas.move(text_id, 0, -1)
+            
+            # Decrease countdown
+            self.score_popups[i] = (text_id, countdown - 1)
+            
+            if countdown <= 0:
+                self.canvas.delete(text_id)
+                popups_to_remove.append(i)
+        
+        # Remove deleted popups from the list (in reverse order to avoid index issues)
+        for index in sorted(popups_to_remove, reverse=True):
+            del self.score_popups[index]
+
     def check_collisions(self):
         """Checks if the player has collided with any enemy."""
         # Get player bounding box (approximate for the triangle)
-        # Use the bottom-most coordinate for collision calculation
         player_bbox = self.canvas.bbox(self.player_shape)
         if not player_bbox: return False
 
@@ -211,7 +252,6 @@ class SpacewavesGame:
             ex1, ey1, ex2, ey2 = enemy_bbox
 
             # Simple AABB (Axis-Aligned Bounding Box) collision check
-            # Check for overlap in X and Y axes
             x_overlap = max(px1, ex1) < min(px2, ex2)
             y_overlap = max(py1, ey1) < min(py2, ey2)
 
@@ -228,7 +268,7 @@ class SpacewavesGame:
 
     def game_over(self):
         """Displays the Game Over screen and a retry option, including High Score logic."""
-        # Unbind movement controls
+        # Unbind movement and pause controls
         self.unbind_controls()
         
         # Check and update High Score
@@ -236,8 +276,13 @@ class SpacewavesGame:
         if self.score > self.high_score:
             self.high_score = self.score
             is_new_high_score = True
+            
+        # Clear all floating score popups
+        for text_id, _ in self.score_popups:
+            self.canvas.delete(text_id)
+        self.score_popups = []
 
-        # Game Over Box (Adjusted height to fit the high score message)
+        # Game Over Box 
         self.canvas.create_rectangle(
             CANVAS_WIDTH // 2 - 150, CANVAS_HEIGHT // 2 - 50,
             CANVAS_WIDTH // 2 + 150, CANVAS_HEIGHT // 2 + 105, 
@@ -273,23 +318,28 @@ class SpacewavesGame:
 
     def reset_game(self):
         """Resets all game state and restarts the game loop."""
+        self.game_paused = False # Start game immediately after reset
         self.init_game_objects()
-        # The game_loop will now continue since self.game_running is True
+        # The game_loop will now continue since self.game_running is True and self.game_paused is False
         self.game_loop()
 
     def game_loop(self):
         """The main update loop for the game."""
-        if self.game_running:
-            self.move_player()
-            self.spawn_enemies()
-            self.move_enemies()
-            self.update_score()
+        # Stop execution if game is over or paused, and wait for input
+        if not self.game_running or self.game_paused:
+            return 
             
-            if self.check_collisions():
-                self.game_over()
-            else:
-                # Schedule the next call to game_loop
-                self.master.after(GAME_LOOP_DELAY, self.game_loop)
+        self.move_player()
+        self.spawn_enemies()
+        self.move_enemies()
+        self.update_score_popups() # New: Update and move score popups
+        self.update_score()
+        
+        if self.check_collisions():
+            self.game_over()
+        else:
+            # Schedule the next call to game_loop
+            self.master.after(GAME_LOOP_DELAY, self.game_loop)
 
 if __name__ == '__main__':
     root = tk.Tk()
