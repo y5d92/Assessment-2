@@ -6,9 +6,14 @@ import random
 import time
 
 # --- Game Constants ---
-CANVAS_WIDTH = 600
-CANVAS_HEIGHT = 700
-PLAYER_SIZE = 30
+# Use these as the reference resolution for scaling
+INITIAL_CANVAS_WIDTH = 600
+INITIAL_CANVAS_HEIGHT = 700
+
+# Initial sizes for proportional scaling
+PLAYER_SIZE_BASE = 30 
+ENEMY_HEIGHT_BASE = 30
+
 PLAYER_SPEED = 15
 ENEMY_SPEED_INITIAL = 3
 ENEMY_SPAWN_INTERVAL = 1500  # milliseconds
@@ -22,16 +27,26 @@ class SpacewavesGame:
     def __init__(self, master):
         self.master = master
         master.title("Spacewaves Defender")
-        master.resizable(False, False)
+        
+        # Allow resizing
+        master.resizable(True, True) 
+        
+        # Current dimensions state (starts with initial values)
+        self.canvas_width = INITIAL_CANVAS_WIDTH
+        self.canvas_height = INITIAL_CANVAS_HEIGHT
+        self.scale_factor = 1.0
+        self.current_player_size = PLAYER_SIZE_BASE
         
         # High Score persists across multiple games in the same session
         self.high_score = 0 
         
-        # Setup Canvas (created once)
-        self.canvas = tk.Canvas(master, width=CANVAS_WIDTH, height=CANVAS_HEIGHT, bg="#000022")
-        self.canvas.pack(padx=10, pady=10)
+        # Setup Canvas (Initial size). Use fill=tk.BOTH and expand=True for responsiveness
+        self.canvas = tk.Canvas(master, width=self.canvas_width, height=self.canvas_height, bg="#000022")
+        self.canvas.pack(padx=10, pady=10, fill=tk.BOTH, expand=True) 
         
-        # Initialize all game objects and state
+        # Bind the Configure event to the canvas to handle resizing
+        self.canvas.bind('<Configure>', self.on_resize)
+        
         self.game_paused = True # Game starts paused
         self.start_text_id = None
         
@@ -39,11 +54,39 @@ class SpacewavesGame:
         
         # Start the game loop which immediately hits the pause check
         self.game_loop()
+        
+    def get_scaled_font(self, base_size):
+        """Returns a font tuple scaled by the current scale factor, ensuring minimum readability."""
+        new_size = max(10, int(base_size * self.scale_factor))
+        return ('Inter', new_size, 'bold')
 
+    def on_resize(self, event):
+        """Handle canvas resizing and update internal dimensions and UI."""
+        # Update current dimensions
+        self.canvas_width = event.width
+        self.canvas_height = event.height
+        
+        # Calculate scaling factor based on height (to keep vertical elements readable)
+        self.scale_factor = self.canvas_height / INITIAL_CANVAS_HEIGHT
+        
+        # Update player size and position based on new dimensions
+        self.reposition_player()
+        
+        # Reposition and re-scale static UI elements
+        self.reposition_ui()
+        
     def init_game_objects(self):
         """Initializes or resets all game elements and state."""
-        # Clear the canvas of all existing items (enemies, player, previous game over text)
+        # Clear the canvas of all existing items
         self.canvas.delete(tk.ALL)
+        
+        # Reset current dimensions/scale based on current window size
+        self.canvas_width = self.canvas.winfo_width()
+        self.canvas_height = self.canvas.winfo_height()
+        if self.canvas_height == 1: # Avoid division by zero if not fully drawn yet
+             self.canvas_height = INITIAL_CANVAS_HEIGHT
+        self.scale_factor = self.canvas_height / INITIAL_CANVAS_HEIGHT
+        self.current_player_size = int(PLAYER_SIZE_BASE * self.scale_factor)
         
         # Game State (High score is NOT reset here)
         self.game_running = True
@@ -51,11 +94,11 @@ class SpacewavesGame:
         self.enemies = []
         self.enemy_speed = ENEMY_SPEED_INITIAL
         self.last_spawn_time = time.time() * 1000
-        self.score_popups = [] # New list for temporary score texts
+        self.score_popups = [] 
 
         # Player setup
-        self.player_x = CANVAS_WIDTH // 2
-        self.player_y = CANVAS_HEIGHT - 50
+        self.player_x = self.canvas_width // 2
+        self.player_y = self.canvas_height - (50 * self.scale_factor)
         self.player_vel_x = 0
         self.player_shape = self.canvas.create_polygon(
             self.get_player_coords(self.player_x, self.player_y),
@@ -65,16 +108,17 @@ class SpacewavesGame:
 
         # Score Label
         self.score_text = self.canvas.create_text(
-            10, 10, anchor=tk.NW, text=f"Score: {self.score} | High Score: {self.high_score}", 
-            fill="#FFFFFF", font=('Inter', 16, 'bold')
+            10, 10, anchor=tk.NW, 
+            text=f"Score: {self.score} | High Score: {self.high_score}", 
+            fill="#FFFFFF", font=self.get_scaled_font(16)
         )
 
         # Show initial 'Press SPACE to Start' screen
         if self.game_paused:
             self.start_text_id = self.canvas.create_text(
-                CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2, 
+                self.canvas_width // 2, self.canvas_height // 2, 
                 text="PRESS SPACE TO START", 
-                fill="#00FFC0", font=('Inter', 28, 'bold'),
+                fill="#00FFC0", font=self.get_scaled_font(28),
                 tag="pause_text"
             )
 
@@ -83,13 +127,13 @@ class SpacewavesGame:
 
     def bind_controls(self):
         """Binds the movement controls, pause key, and unbinds retry key."""
+        # Movement controls remain the same, though the resulting change in x is applied to scaled player
         self.master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
         self.master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
         self.master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
         self.master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
-        self.master.bind('<space>', self.toggle_pause) # New: Pause/Start binding
+        self.master.bind('<space>', self.toggle_pause) 
         
-        # Ensure the retry key is unbound during active gameplay
         self.master.unbind('<Return>')
 
     def unbind_controls(self):
@@ -103,32 +147,74 @@ class SpacewavesGame:
     def toggle_pause(self, event=None):
         """Toggles the game state between running and paused."""
         if not self.game_running:
-            return # Don't pause if the game is over
+            return 
 
         self.game_paused = not self.game_paused
         
         if self.game_paused:
-            # Show pause text
+            # Show pause text, ensuring it uses the current scale/position
+            self.canvas.delete("pause_text")
             self.start_text_id = self.canvas.create_text(
-                CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2, 
+                self.canvas_width // 2, self.canvas_height // 2, 
                 text="PAUSED", 
-                fill="#FFFF00", font=('Inter', 28, 'bold'),
+                fill="#FFFF00", font=self.get_scaled_font(28),
                 tag="pause_text"
             )
         else:
-            # Remove pause text and resume loop immediately
             self.canvas.delete("pause_text")
-            # Immediately call game_loop to resume animation
             self.master.after(GAME_LOOP_DELAY, self.game_loop)
+            
+    def reposition_ui(self):
+        """Repositions all static UI elements (score, pause, game over) based on the new canvas size."""
+        # Update score text font
+        self.canvas.itemconfigure(self.score_text, font=self.get_scaled_font(16))
+        
+        # Reposition pause text/start text if it exists
+        if self.game_paused and self.game_running:
+            pause_items = self.canvas.find_withtag("pause_text")
+            if pause_items:
+                self.canvas.coords(
+                    pause_items[0], 
+                    self.canvas_width // 2, 
+                    self.canvas_height // 2
+                )
+                self.canvas.itemconfigure(pause_items[0], font=self.get_scaled_font(28))
+        
+        # If game over, redraw game over screen
+        if not self.game_running:
+            self.draw_game_over_screen()
+
 
     def get_player_coords(self, x, y):
-        """Calculates the coordinates for the player's triangle shape."""
-        # A simple upward-pointing triangle
+        """Calculates the coordinates for the player's triangle shape using the scaled size."""
+        # Use current calculated size
+        size = self.current_player_size
         return [
-            x, y - PLAYER_SIZE,  # Top point
-            x - PLAYER_SIZE // 2, y + PLAYER_SIZE // 2,  # Bottom-left
-            x + PLAYER_SIZE // 2, y + PLAYER_SIZE // 2   # Bottom-right
+            x, y - size,  # Top point
+            x - size // 2, y + size // 2,  # Bottom-left
+            x + size // 2, y + size // 2   # Bottom-right
         ]
+        
+    def reposition_player(self):
+        """Updates player size and Y offset based on new canvas size."""
+        self.current_player_size = int(PLAYER_SIZE_BASE * self.scale_factor)
+        
+        # Player Y position should be relative to the bottom
+        self.player_y = self.canvas_height - (50 * self.scale_factor)
+        
+        # Boundary check and adjustment
+        min_x = self.current_player_size // 2
+        max_x = self.canvas_width - self.current_player_size // 2
+        
+        if self.player_x > max_x:
+            self.player_x = max_x
+        if self.player_x < min_x:
+            self.player_x = min_x
+            
+        # Update the shape's coordinates immediately after resizing/repositioning
+        if self.player_shape:
+            self.canvas.coords(self.player_shape, self.get_player_coords(self.player_x, self.player_y))
+
 
     def set_player_velocity(self, speed):
         """Sets the player's horizontal movement speed."""
@@ -141,34 +227,37 @@ class SpacewavesGame:
             self.player_vel_x = 0
 
     def move_player(self):
-        """Updates the player's position based on velocity and boundary checks."""
+        """Updates the player's position based on velocity and boundary checks using current size."""
         if self.player_vel_x != 0:
             new_x = self.player_x + self.player_vel_x
             
-            # Keep player within the canvas bounds
-            min_x = PLAYER_SIZE // 2
-            max_x = CANVAS_WIDTH - PLAYER_SIZE // 2
+            size = self.current_player_size
+            # Keep player within the canvas bounds (using current/scaled size)
+            min_x = size // 2
+            max_x = self.canvas_width - size // 2
             
             if min_x < new_x < max_x:
                 self.player_x = new_x
-                # Update the shape's coordinates
                 self.canvas.coords(self.player_shape, self.get_player_coords(self.player_x, self.player_y))
             elif new_x <= min_x:
-                self.player_x = min_x + 1 # Bounce off slightly
+                self.player_x = min_x + 1 
                 self.player_vel_x = 0
             elif new_x >= max_x:
-                self.player_x = max_x - 1 # Bounce off slightly
+                self.player_x = max_x - 1 
                 self.player_vel_x = 0
     
     def spawn_enemies(self):
-        """Spawns a new wave of enemy blocks."""
+        """Spawns a new wave of enemy blocks, responsive to current canvas width and scale."""
         now = time.time() * 1000
         # Increase enemy speed over time for progressive difficulty
         self.enemy_speed = ENEMY_SPEED_INITIAL + self.score // 100 
+        
+        # Enemy block height also scales slightly
+        scaled_enemy_height = int(ENEMY_HEIGHT_BASE * self.scale_factor)
 
         if now - self.last_spawn_time > ENEMY_SPAWN_INTERVAL / (1 + self.score / 500):
             num_blocks = random.randint(2, 5)  # 2 to 5 blocks per wave
-            block_width = CANVAS_WIDTH // 10
+            block_width = self.canvas_width // 10 # Uses current canvas width
             
             # Create a set of occupied horizontal slots
             occupied_slots = random.sample(range(10), k=num_blocks)
@@ -178,7 +267,7 @@ class SpacewavesGame:
                 x1 = slot * block_width
                 y1 = 0
                 x2 = (slot + 1) * block_width
-                y2 = 30 # Enemy block height
+                y2 = scaled_enemy_height # Scaled block height
                 
                 # Create a rectangle enemy
                 enemy_id = self.canvas.create_rectangle(
@@ -187,13 +276,12 @@ class SpacewavesGame:
                     outline="#FF8888",
                     width=2
                 )
-                # Store the enemy ID and its bounding box coords
                 self.enemies.append(enemy_id)
             
             self.last_spawn_time = now
 
     def move_enemies(self):
-        """Moves all existing enemies down the screen."""
+        """Moves all existing enemies down the screen, using current canvas height for despawn check."""
         enemies_to_remove = []
         for enemy_id in self.enemies:
             # Move the enemy down by the current speed
@@ -201,7 +289,7 @@ class SpacewavesGame:
             
             # Get current bounding box (x1, y1, x2, y2)
             coords = self.canvas.coords(enemy_id)
-            if coords and coords[3] > CANVAS_HEIGHT:
+            if coords and coords[3] > self.canvas_height: # Uses current canvas height for despawn
                 enemies_to_remove.append(enemy_id)
                 self.score += 10 # Reward for dodging a block
                 
@@ -210,7 +298,7 @@ class SpacewavesGame:
                 y = coords[3] - 15
                 popup_id = self.canvas.create_text(
                     x, y, text="+10", fill="#00AAFF", 
-                    font=('Inter', 12, 'bold'), anchor=tk.CENTER
+                    font=self.get_scaled_font(12), anchor=tk.CENTER
                 )
                 self.score_popups.append((popup_id, 30)) # Store ID and countdown (30 frames)
         
@@ -262,65 +350,82 @@ class SpacewavesGame:
 
     def update_score(self):
         """Updates the score display."""
-        # Display current score and high score
+        # Display current score and high score with scaled font
         display_text = f"Score: {self.score} | High Score: {self.high_score}"
-        self.canvas.itemconfigure(self.score_text, text=display_text)
+        self.canvas.itemconfigure(self.score_text, text=display_text, font=self.get_scaled_font(16))
 
     def game_over(self):
-        """Displays the Game Over screen and a retry option, including High Score logic."""
-        # Unbind movement and pause controls
+        """Handles game over state and draws the responsive game over screen."""
         self.unbind_controls()
         
         # Check and update High Score
-        is_new_high_score = False
         if self.score > self.high_score:
             self.high_score = self.score
-            is_new_high_score = True
             
         # Clear all floating score popups
         for text_id, _ in self.score_popups:
             self.canvas.delete(text_id)
         self.score_popups = []
 
+        self.draw_game_over_screen()
+        
+        # Bind the Return/Enter key to the reset method
+        self.master.bind('<Return>', lambda event: self.reset_game())
+        
+    def draw_game_over_screen(self):
+        """Draws the game over UI using current dimensions and scale factor."""
+        # Clear previous game over UI if it exists
+        self.canvas.delete("game_over_ui") 
+        
+        center_x = self.canvas_width // 2
+        center_y = self.canvas_height // 2
+        
+        # Scaled box width and vertical offsets
+        box_width = 150 * self.scale_factor
+        
         # Game Over Box 
         self.canvas.create_rectangle(
-            CANVAS_WIDTH // 2 - 150, CANVAS_HEIGHT // 2 - 50,
-            CANVAS_WIDTH // 2 + 150, CANVAS_HEIGHT // 2 + 105, 
-            fill="#333333", outline="#FFD700", width=3
-        )
-        self.canvas.create_text(
-            CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2 - 20, 
-            text="GAME OVER", fill="#FF4444", font=('Inter', 24, 'bold')
-        )
-        self.canvas.create_text(
-            CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2 + 15, 
-            text=f"Final Score: {self.score}", fill="#FFFFFF", font=('Inter', 18)
+            center_x - box_width, center_y - (50 * self.scale_factor),
+            center_x + box_width, center_y + (105 * self.scale_factor), 
+            fill="#333333", outline="#FFD700", width=3,
+            tags="game_over_ui"
         )
         
-        # Display High Score on Game Over screen
+        # Text elements, all using scaled fonts and positions
+        self.canvas.create_text(
+            center_x, center_y - (20 * self.scale_factor), 
+            text="GAME OVER", fill="#FF4444", font=self.get_scaled_font(24),
+            tags="game_over_ui"
+        )
+        self.canvas.create_text(
+            center_x, center_y + (15 * self.scale_factor), 
+            text=f"Final Score: {self.score}", fill="#FFFFFF", font=self.get_scaled_font(18),
+            tags="game_over_ui"
+        )
+        
+        is_new_high_score = (self.score == self.high_score and self.score > 0)
         high_score_color = "#00FFC0" if is_new_high_score else "#CCCCCC"
         high_score_label = "NEW HIGH SCORE!" if is_new_high_score else "High Score:"
         
         self.canvas.create_text(
-            CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2 + 50, 
+            center_x, center_y + (50 * self.scale_factor), 
             text=f"{high_score_label} {self.high_score}", 
-            fill=high_score_color, font=('Inter', 16, 'bold')
+            fill=high_score_color, font=self.get_scaled_font(16),
+            tags="game_over_ui"
         )
         
         # Retry Prompt
         self.canvas.create_text(
-            CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2 + 85, 
-            text="Press ENTER to Play Again", fill="#00FFC0", font=('Inter', 14, 'bold')
+            center_x, center_y + (85 * self.scale_factor), 
+            text="Press ENTER to Play Again", fill="#00FFC0", font=self.get_scaled_font(14),
+            tags="game_over_ui"
         )
-        
-        # Bind the Return/Enter key to the reset method
-        self.master.bind('<Return>', lambda event: self.reset_game())
+
 
     def reset_game(self):
         """Resets all game state and restarts the game loop."""
-        self.game_paused = False # Start game immediately after reset
+        self.game_paused = False 
         self.init_game_objects()
-        # The game_loop will now continue since self.game_running is True and self.game_paused is False
         self.game_loop()
 
     def game_loop(self):
@@ -332,7 +437,7 @@ class SpacewavesGame:
         self.move_player()
         self.spawn_enemies()
         self.move_enemies()
-        self.update_score_popups() # New: Update and move score popups
+        self.update_score_popups() 
         self.update_score()
         
         if self.check_collisions():
