@@ -1,6 +1,9 @@
 # I acknowledge the use of Gemini (version Flash 2.5, Google, https://gemini.google.com/)
 # to co-create this code for the Spacewaves Defender game.
 
+# I acknowledge the use of Gemini (version Flash 2.5, Google, https://gemini.google.com/)
+# to co-create this code for the Spacewaves Defender game.
+
 import tkinter as tk
 import random
 import time
@@ -66,6 +69,24 @@ class SpacewavesGame:
             fill="#FFFFFF", font=('Inter', 16, 'bold')
         )
 
+        # Bind initial controls
+        self.bind_controls()
+
+    def bind_controls(self):
+        """Binds the movement controls and unbinds retry key."""
+        self.master.bind('<Left>', lambda event: self.set_player_velocity(-PLAYER_SPEED))
+        self.master.bind('<Right>', lambda event: self.set_player_velocity(PLAYER_SPEED))
+        self.master.bind('<KeyRelease-Left>', lambda event: self.stop_player_velocity('Left'))
+        self.master.bind('<KeyRelease-Right>', lambda event: self.stop_player_velocity('Right'))
+        # Ensure the retry key is unbound during active gameplay
+        self.master.unbind('<Return>')
+
+    def unbind_controls(self):
+        """Unbinds all movement controls."""
+        self.master.unbind('<Left>')
+        self.master.unbind('<Right>')
+        self.master.unbind('<KeyRelease-Left>')
+        self.master.unbind('<KeyRelease-Right>')
         # Bind initial controls
         self.bind_controls()
 
